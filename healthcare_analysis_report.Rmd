@@ -1,0 +1,354 @@
+---
+title: "2015 Multinational Healthcare Analysis"
+author: "Mitch Strahlman"
+date: "January 19th, 2021"
+output:
+  pdf_document: default
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = FALSE, warning = FALSE)
+```
+
+```{r load packages, include = FALSE}
+library(tidyverse) # Wrangling + Visualizations
+library(rstudioapi) # Allows dynamic working directory
+library(ggthemes) # Download themes for visualizations
+library(reshape2) # Visualize correlation matrix
+```
+
+```{r data importation, cleaning, and merging, include = FALSE}
+# Import Data
+uhc <- read_csv("../data/uhcCoverage.csv")
+expenses <- read_csv("../data/population10SDG3.8.2.csv")
+life_expectancy <- read_csv("../data/lifeExpectancyAtBirth.csv")
+infant_mortality <- read_csv("../data/infantMortalityRate.csv")
+suicides <- read_csv("../data/crudeSuicideRates.csv")
+
+# Pre-Merge Cleaning
+uhc <- uhc %>%
+  rename("uhc" = `First Tooltip`) %>%
+  filter(Period == 2015) %>%
+  select(-c(`Indicator`, `Period`)) 
+
+expenses <- expenses %>%
+  rename("pop_high_costs" = `First Tooltip`) %>% # % of population with healthcare costs > 10% of household expenses or income
+  filter(Period == 2015, Dim1 == "Total") %>% 
+  select(-c(`Indicator`, `Period`, `Dim1`)) 
+
+suicides <- suicides %>%
+  rename("suicide_rate" = `First Tooltip`) %>% # suicides per 100k population
+  filter(Period == 2015, Dim1 == "Both sexes") %>%
+  select(-c(`Indicator`, `Period`, `Dim1`)) 
+
+life_expectancy <- life_expectancy %>%
+  rename("life_expectancy" = `First Tooltip`) %>% # life expectancy at birth
+  filter(Period == 2015, Dim1 == "Both sexes") %>%
+  select(-c(`Indicator`, `Period`, `Dim1`)) 
+
+infant_mortality <- infant_mortality %>%
+  rename("infant_mortality" = `First Tooltip`) %>% # probability of dying between birth and age 1 per 1000 live births
+  filter(Period == 2015, Dim1 == "Both sexes") %>%
+  select(-c(`Indicator`, `Period`, `Dim1`)) 
+infant_mortality$infant_mortality <- as.numeric(gsub("\\[.*", "", infant_mortality$infant_mortality))
+
+# Merge the Data
+all_data <- full_join(expenses, infant_mortality, by = c("Location")) %>%
+  full_join(life_expectancy, by = c("Location")) %>%
+  full_join(suicides, by = c("Location")) %>%
+  full_join(uhc, by = c("Location"))
+
+# Clean the Merged Data
+all_data$pop_high_costs[is.na(all_data$pop_high_costs)] = 0 # change NAs to 0 for population with healthcare costs > 10% of household expenses or income
+all_data <- na.omit(all_data) # remove NAs for all other variables for complete data
+```
+
+# The Data
+The data utilized in this analysis was downloaded from a [World Health Statistics Dataset](https://www.kaggle.com/utkarshxy/who-worldhealth-statistics-2020-complete). More specifically, the following datasets were downloaded and imported:
+
+- lifeExpectancyAtBirth.csv
+- infantMortalityRate.csv
+- crudeSuicideRates.csv
+- uhcCoverage.csv
+- population10%SDG3.8.2.csv
+
+These datasets coverered the most recent health statistics in countries recognized by the WHO. I imported and cleaned these datasets for readability, while removing NA values and replacing the NA values with 0 in the *population10%SDG3.8.2.csv* dataset. I then merged these datasets into a singular, meta-dataset. Lastly, I wrangled this meta-data to represent the following variables per country in 2015 in order for consistent analyses: healthcare expenses, infant mortality rates, life expectancy rates, suicicde rates, and a Universal Healthcare Index. The first five lines of the data can be seen below:
+```{r view the first 5 lines of data}
+head(all_data)
+```
+
+The distribution of the variables can be seen below:
+```{r examine the cleaned data}
+summary(all_data)
+```
+## Variable Explanation
+- pop_high_costs: Percent of country's population with healthcare costs > 10% of household expenses or income.
+- infant_mortality: Probability of dying between birth and age 1 per 1000 live births for a single country.
+- life_expectancy: A country's life expectancy at bith.
+- suicide_rate: Suicides per 100k population for a single country.
+- uhc: A country's Universal Healthcare Index is an indicator reported on a 0 to 100 scale that represents a country's ability to achieve universal health coverage including financial risk protection and access to quality healthcare services and essential, affordable medicines.
+
+## Histograms of Each Variable
+```{r histograms of each variable, echo = FALSE, fig.width=3, fig.height=3,fig.show='hold',fig.align='center'}
+hist(all_data$pop_high_costs, main = "HC Healthcare Distribution", xlab = "High Cost Healthcare Rate")
+hist(all_data$infant_mortality, main = "Infant Mortality Distribution", xlab = "Infant Mortality Rate")
+hist(all_data$life_expectancy, main = "Life Expectancy Distribution", xlab = "Life Expectancy at Birth")
+hist(all_data$suicide_rate, main = "Suicide Rate Distribution", xlab = "Suicides per 100K Population")
+hist(all_data$uhc, main = "UHC Index Distribution", xlab = "Universal Healthcare Index")
+```
+
+## Data Takeaways
+- 162 countries were included in this meta-dataset. Some were removed due to missing data.
+- Only 20 countries had non-zero values for population with healthcare costs > 10% of household expenses or income, which caused the variable to be positively skewed.
+- The average number of suicides per 100k people across all countries included in the data is 9.4.
+- The average infant mortality and life expectancy rates seem to be standard.
+- Infant mortality and suicide rate are positively skewed, while life expectancy and Universal Healthcare Index are negatively skewed.
+
+## Top and Bottom 5 Countries for Each Variable
+5 Countries with the Highest Percent of Houselholds with High Healthcare Costs 
+```{r, top and bottom hc costs, echo = FALSE}
+all_data %>%
+  slice_max(n = 5, pop_high_costs) %>%
+  summarize(Location, pop_high_costs)
+```
+Top and Bottom 5 Countries with the Highest and Lowest Infant Mortality Rates
+```{r, top and bottom im rates, echo = FALSE}
+# Top 5 countries with highest infant mortality rates
+all_data %>%
+  slice_max(n = 5, infant_mortality) %>%
+  summarize(Location, infant_mortality)
+
+# Bottom 5 countries with lowest infant mortality rates
+all_data %>%
+  slice_min(n = 5, infant_mortality) %>%
+  summarize(Location, infant_mortality)
+```
+Top and Bottom 5 Countries with Highest and Lowest Life Expectancy
+```{r, top and bottom le, echo = FALSE}
+# Top 5 countries with highest life expectancy
+all_data %>%
+  slice_max(n = 5, life_expectancy) %>%
+  summarize(Location, life_expectancy)
+
+# Bottom 5 countries with lowest life expectancy
+all_data %>%
+  slice_min(n = 5, life_expectancy) %>%
+  summarize(Location, life_expectancy)
+```
+Top and Bottom 5 Countries with Highest and Lowest Suicide Rates
+```{r, top and bottom suicide rates, echo = FALSE}
+# Top 5 countries with highest suicide rate
+all_data %>%
+  slice_max(n = 5, suicide_rate) %>%
+  summarize(Location, suicide_rate)
+
+# Bottom 5 countries with lowest suicide rate
+all_data %>%
+  slice_min(n = 5, suicide_rate) %>%
+  summarize(Location, suicide_rate)
+```
+\newpage
+Top and Bottom 5 Countries with Highest and Lowest UHC Index
+```{r, top and bottom uhc, echo = FALSE}
+# Top 5 countries with highest UCH Index
+all_data %>%
+  slice_max(n = 5, uhc) %>%
+  summarize(Location, uhc)
+
+# Bottom 5 countries with lowest UCH index
+all_data %>%
+  slice_min(n = 5, uhc) %>%
+  summarize(Location, uhc)
+```
+
+``` {r, build a correlation matrix, include = FALSE}
+# Base matrix
+all_data.cor <- round(cor(all_data[-c(1)]), 2) 
+# Get lower triangle of the correlation matrix
+get_lower_tri<-function(all_data.cor){
+  all_data.cor[upper.tri(all_data.cor)] <- NA
+  return(all_data.cor)
+}
+# Get upper triangle of the correlation matrix
+get_upper_tri <- function(all_data.cor){
+  all_data.cor[lower.tri(all_data.cor)]<- NA
+  return(all_data.cor)
+}
+upper_tri <- get_upper_tri(all_data.cor)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+```
+
+# Correlation Matrix
+## The below matrix delineates the Pearson's r correlation value between each of the continuous variables.
+```{r, visualize correlation matrix, echo = FALSE}
+cormat_plot <- ggplot(data = melted_cormat, aes(Var2, Var1, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 12, hjust = 1)) +
+  coord_fixed() +
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+cormat_plot
+```
+
+## Discussion
+We can see that there are high r values for the relationships between *life expectancy and infant mortality*, *Universal Healthcare Index and infant mortality*, and *Universal Healthcare Index and life expectancy*. This is to be expected, as better healthcare coverage will lead to lower infant mortality and higher life expectancy. There are also moderate relationships between *suicide rates and Universal Healthcare Index* and *suicide rates and infant mortality*. In the next section, we will examine the relationship on a deeper level between some of these variables through the construction of a couple of linear regression models.
+
+\newpage
+
+# Linear Regression Analysis
+## Assessing the Relationship Between Suicide Rate and UHC: Does UHC Index Predict Suicides?
+We can see from the below regression model output that UHC Index is a significant predictor of suicide rate.
+```{r, suic_uhc, echo = FALSE}
+uhc_suic <- lm(suicide_rate ~ uhc, data = all_data)
+summary(uhc_suic)
+```
+
+The below plots assess the assumptions of the regression model. The first plot asseses the linearity assumption, the second plot asseses the normality assumption, and the third plot asseses the homogeneity of variance assumption. We can see there might be an issue with homogeneity of variance, which will we address further.
+```{r, suic_uhc_assump, echo = FALSE, fig.width = 3, fig.height = 3,fig.show = 'hold',fig.align = 'center'}
+plot(uhc_suic, 1) # Residuals vs Fitted assesses the linearity assumption
+plot(uhc_suic, 2) # Normal Q-Q plot asseses the normality of residuals assumption 
+plot(uhc_suic, 3) # Scale-location assess the homogeneity of variance assumption
+```
+
+The below plot visualizes the regression model. We can see that, on average, as UHC Index increases, so does suicide rate. The R-squared value is small, but the relationship is significant.
+```{r, suic_uhc_model_vis, echo = FALSE, , fig.height = 5, fig.width = 7, fig.align = "center"}
+uhc_suic_lr <- ggplot(all_data, aes(`uhc`, `suicide_rate`)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  labs(title = "Simple Linear Regression Model",
+       subtitle = "Does Universal Healthcare Index of Service Coverage Predict Suicide Rates?",
+       x = "Universal Healthcare Index",
+       y = "Suicides/100k Population",
+       caption = expression("R"^2*" = .09, p < .001")) +
+  theme_solarized() +
+  theme(axis.title = element_text(), 
+        legend.position = "right", 
+        legend.direction = "vertical")
+uhc_suic_lr
+```
+
+\newpage
+
+Because there may be an issue with homogeneity of variance, a better approach might be to build a weighted least squares regression model. Weights were created for the residuals, and the output of the model can be seen below.
+```{r, wlsr weights, include = FALSE}
+lm_weights <- 1 / lm((uhc_suic$residuals)^2 ~ uhc_suic$fitted.values)$fitted.values^2
+```
+
+```{r, wlsr model output, echo = FALSE}
+wlsr <- lm(suicide_rate ~ uhc, data = all_data, weights = lm_weights)
+summary(wlsr)
+```
+
+Note that the predictor value is still significant, but the R-squared has increased to .29, reflecting a better fit. To visualize a comparison between the ordinary least squares regression model and the weighted lease squares regression model, we can create a plot comparing the respective models. The black dotted line represents the ordinary least squares model, and the red dotted line represents the weighted least squares model. Visually, there does not seem to be a noticable difference, but the R-squared values represent a difference in fit.
+```{r, compare models, echo = FALSE, , fig.height = 4, fig.width = 7, fig.align = "center"}
+w_vs_o <- ggplot(data = all_data,
+       aes(y = suicide_rate,
+           x = uhc)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE,
+              aes(weight = lm_weights),
+              color = "black",
+              size = .5,
+              linetype = "dashed") +
+  geom_smooth(method = "lm", se = FALSE,
+              color = "red",
+              size = .5,
+              linetype = "dashed") +
+  labs(title = "Ordinary vs Weighted Least Squares Regression Model",
+       subtitle = "Does Universal Healthcare Index of Service Coverage Predict Suicide Rates?",
+       x = "Universal Healthcare Index",
+       y = "Suicides/100k Population",
+       caption = expression("R"^2*" = .29, p < .001")) +
+  theme_solarized() +
+  theme(axis.title = element_text(), 
+        legend.position = "right", 
+        legend.direction = "vertical")
+w_vs_o
+```
+
+## Assessing the Relationship Between UHC Index and Life Expectancy: Does UHC Index Predict Life Expectancy?
+We can see from the below regression model output that UHC Index is a significant predictor of life expectancy.
+```{r, le_uhc, echo = FALSE}
+le_uhc_model <- lm(life_expectancy ~ uhc, data = all_data)
+summary(le_uhc_model)
+```
+
+The below plots assess the assumptions of the regression model. The first plot asseses the linearity assumption, the second plot asseses the normality assumption, and the third plot asseses the homogeneity of variance assumption. 
+```{r, le_uhc_assump, echo = FALSE, fig.width = 3, fig.height = 3,fig.show = 'hold',fig.align = 'center'}
+plot(le_uhc_model, 1) # Residuals vs Fitted assesses the linearity assumption
+plot(le_uhc_model, 2) # Normal Q-Q plot asseses the normality of residuals assumption 
+plot(le_uhc_model, 3) # Scale-location assess the homogeneity of variance assumption
+```
+
+The below plot visualizes the regression model. We can see that, on average, as UHC Index increases, so does life expectancy. The R-squared is large, and the relationship is significant.
+```{r, le_uhc_model_vis, echo = FALSE, , fig.height = 5, fig.width = 7, fig.align = "center"}
+le_uhc_model_vis <- ggplot(all_data, aes(uhc, life_expectancy)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  labs(title = "Simple Linear Regression Model",
+       subtitle = "Does Universal Healthcare Index of Service Coverage Predict Life Expectancy?",
+       x = "Universal Healthcare Index",
+       y = "Life Expectancy",
+       caption = expression("R"^2*" = .75, p < .001")) +
+  theme_solarized() +
+  theme(axis.title = element_text(), 
+        legend.position = "right", 
+        legend.direction = "vertical",)
+le_uhc_model_vis
+```
+
+## Assessing the Relationship Between UHC Index and Infant Mortality: Does UHC Index Predict Infant Mortality?
+We can see from the below regression model output that UHC Index is a significant predictor of infant mortality.
+```{r, im_uhc, echo = FALSE}
+im_uhc_model <- lm(infant_mortality ~ uhc, data = all_data)
+summary(im_uhc_model)
+```
+
+The below plots assess the assumptions of the regression model. The first plot asseses the linearity assumption, the second plot asseses the normality assumption, and the third plot asseses the homogeneity of variance assumption. 
+```{r, im_uhc_assump, echo = FALSE, fig.width = 3, fig.height = 3,fig.show = 'hold',fig.align = 'center'}
+plot(im_uhc_model, 1) # Residuals vs Fitted assesses the linearity assumption
+plot(im_uhc_model, 2) # Normal Q-Q plot asseses the normality of residuals assumption 
+plot(im_uhc_model, 3) # Scale-location assess the homogeneity of variance assumption
+```
+
+The below plot visualizes the regression model. We can see that, on average, as UHC Index increases, infant mortality decreases. The R-squared is large, and the relationship is significant.
+```{r, im_uhc_model_vis, echo = FALSE, , fig.height = 5, fig.width = 7, fig.align = "center"}
+le_uhc_model_vis <- ggplot(all_data, aes(uhc, infant_mortality)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  labs(title = "Simple Linear Regression Model",
+       subtitle = "Does Universal Healthcare Index of Service Coverage Predict Infant Mortality?",
+       x = "Universal Healthcare Index",
+       y = "Infant Mortality Rate per 1000 Live Births",
+       caption = expression("R"^2*" = .77, p < .001")) +
+  theme_solarized() +
+  theme(axis.title = element_text(), 
+        legend.position = "right", 
+        legend.direction = "vertical",)
+le_uhc_model_vis
+```
+
+# Discussion
+Overall, the least squares linear regression model that measures the relationship between suicide rate and UHC index indicates that, when UHC Index increases by 1 point, suicides/100k population increase by about .12. Another way to interpret this is if UHC Index increase by 10 points, suicides/100k population increase by 12. Of course, the R-squared value in this model is only .29, so not all of the variation in UHC Index is represented in the suicides/100k population variable. However, a significant relationship still seems to be present. When thinking about why this might be, one possible explanation is that more developed countries with higher UHC indexes come with more middle class, white collar-type jobs. Moreover, a good UHC Index index does not always mean more access to affordable therapy.
+
+The linear regression models that measure the relationships between UHC Index and life expectancy and infant mortality respectivaly are expected. Countries with more robust healthcare systems would of course be associated with higher life expectancy and lower infant mortality.
+
+Lastly, it is important to understand that the above models have problems with the core assumptions (specifically the linear regression model that examines the relationship between). I am not endorsing any intervention based on the above findings. I'm still a beginner when it comes to statistics, so once I learn more complex skills, perhaps I can use different analyses to address the above relationships.
+
+# Future Research
+Overall, I'd like to more closesly examine the relationship between suicides and a country's healthcare system by attempting to answer the following research questions:
+
+- Are people more likely to committ suicide when their country does not provide a single-payer healthcare system?
+- Are people more likely to committ suicide if their country's single-payer healthcare system does not offer free therapy?
+- Is there a relationship between suicide rates and cost of therapy?
